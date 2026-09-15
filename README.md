@@ -126,22 +126,32 @@ Personalize your experience with theme options, profile customization, and accou
 
 ## Setup
 
-1. Install dependencies:
+1. Install the dependencies exactly as recorded in `package-lock.json`:
 
 ```bash
-npm install
+npm ci
 ```
 
-2. Copy the environment template, then replace its placeholder values with your Supabase project credentials:
+2. Copy the environment template:
 
 ```bash
 cp .env.example .env.local
 ```
 
+3. Replace the placeholder values in `.env.local` with your Supabase project credentials:
+
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
+
+4. Start the development server:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Database Setup
 
@@ -151,16 +161,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 4. (Optional) Run [sql/seed_dummy_data.sql](sql/seed_dummy_data.sql) to populate the database with demo projects, members, clients, and activities.
 5. (Optional) Run [sql/reset_dummy_data.sql](sql/reset_dummy_data.sql) if you want to remove the [DEMO] data later.
 
-6. Enable OAuth (optional):
+6. Optionally enable OAuth:
 
 - Configure OAuth providers in Supabase Auth settings.
 - Add provider-specific environment variables to `.env.local`.
-
-### Run locally
-
-```bash
-npm run dev
-```
 
 ### Production check
 
