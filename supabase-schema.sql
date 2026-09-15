@@ -1,0 +1,427 @@
+-- =====================================================
+-- PROJECTHUB DATABASE SCHEMA
+-- This file contains all tables, RLS policies, indexes, 
+-- and triggers required for a fresh ProjectHub installation.
+-- Run this once in the Supabase SQL Editor.
+-- =====================================================
+
+-- =====================================================
+-- 1. PROFILES TABLE (links to auth.users)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT,
+  full_name TEXT,
+  -- SYSTEM PERMISSIONS: 'admin', 'member', 'viewer'
+  role TEXT DEFAULT 'viewer' CHECK (role IN ('admin', 'member', 'viewer')),
+  avatar_url TEXT,
+  theme_preference TEXT DEFAULT 'dark' CHECK (theme_preference IN ('light', 'dark')),
+  accent_color TEXT DEFAULT '#8b5cf6',
+  theme_gradient BOOLEAN DEFAULT true,
+  micro_animations BOOLEAN DEFAULT true,
+  nav_style TEXT DEFAULT 'sidebar' CHECK (nav_style IN ('top', 'sidebar')),
+  dashboard_layout JSONB,
+  dashboard_layout_mobile JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for profiles
+CREATE POLICY "Users can view all profiles" ON profiles
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Users can update own profile" ON profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id);
+
+CREATE POLICY "Admins can do anything with profiles" ON profiles
+  FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- =====================================================
+-- 2. MEMBERS TABLE (for project assignment)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  email TEXT,
+  -- JOB TITLE: e.g., 'Developer', 'Designer' (Display only)
+  role TEXT DEFAULT 'developer',
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE members ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for members
+CREATE POLICY "Authenticated users can view members" ON members
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and members can insert members" ON members
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins and members can update members" ON members
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins can delete members" ON members
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- =====================================================
+-- 3. CLIENTS TABLE
+-- =====================================================
+CREATE TABLE IF NOT EXISTS clients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  contact_email TEXT,
+  contact_phone TEXT,
+  website TEXT,
+  company TEXT,
+  notes TEXT,
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view clients" ON clients
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and members can insert clients" ON clients
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins and members can update clients" ON clients
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins can delete clients" ON clients
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- =====================================================
+-- 4. PROJECTS TABLE
+-- =====================================================
+CREATE TABLE IF NOT EXISTS projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  client_name TEXT,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'in-progress', 'on-hold', 'completed', 'closed')),
+  start_date DATE,
+  deadline DATE,
+  budget DECIMAL(12,2),
+  labels TEXT[] DEFAULT ARRAY[]::TEXT[],
+  member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+  description TEXT,
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for projects
+CREATE POLICY "Authenticated users can view projects" ON projects
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins can insert projects" ON projects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins can update projects" ON projects
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins can delete projects" ON projects
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- =====================================================
+-- 5. PROJECT_MEMBERS (many-to-many: projects ↔ members)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  member_id UUID REFERENCES members(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (project_id, member_id)
+);
+
+-- Enable RLS
+ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view project_members" ON project_members
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and members can insert project_members" ON project_members
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins and members can delete project_members" ON project_members
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+-- =====================================================
+-- 6. PROJECT_STARS (per-user starred projects)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS project_stars (
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, project_id)
+);
+
+-- Enable RLS
+ALTER TABLE project_stars ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own project_stars" ON project_stars
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
+
+CREATE POLICY "Users can insert own project_stars" ON project_stars
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can delete own project_stars" ON project_stars
+  FOR DELETE TO authenticated
+  USING (user_id = auth.uid());
+
+-- =====================================================
+-- 7. AUTH_ACTIVITY (login/session history)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS auth_activity (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  email TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN ('login_success', 'logout', 'session_check')),
+  user_agent TEXT,
+  ip_hash TEXT,
+  country TEXT,
+  city TEXT,
+  metadata JSONB DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS auth_activity_user_created_idx ON auth_activity (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS auth_activity_email_created_idx ON auth_activity (email, created_at DESC);
+
+ALTER TABLE auth_activity ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own auth activity" ON auth_activity
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
+
+CREATE POLICY "Admins can view all auth activity" ON auth_activity
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+CREATE POLICY "Users can insert own auth activity" ON auth_activity
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+-- =====================================================
+-- 8. PROJECT_ACTIVITIES (project audit timeline)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS project_activities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  event_type TEXT NOT NULL CHECK (
+    event_type IN (
+      'project_created',
+      'project_updated',
+      'member_added',
+      'member_removed',
+      'task_created',
+      'task_deleted',
+      'task_status_changed',
+      'task_assignee_changed'
+    )
+  ),
+  entity_type TEXT CHECK (entity_type IN ('project', 'member', 'task')),
+  entity_id UUID,
+  message TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS project_activities_project_created_idx ON project_activities (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS project_activities_entity_idx ON project_activities (entity_type, entity_id, created_at DESC);
+
+ALTER TABLE project_activities ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view project activities" ON project_activities
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and members can insert project activities" ON project_activities
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+-- =====================================================
+-- 9. TASKS (project task tracking)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'todo' CHECK (status IN ('todo', 'in-progress', 'done')),
+  priority TEXT DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+  assignee_member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+  due_date DATE,
+  position INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view tasks" ON tasks
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and members can insert tasks" ON tasks
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins and members can update tasks" ON tasks
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+CREATE POLICY "Admins and members can delete tasks" ON tasks
+  FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role IN ('admin', 'member')
+    )
+  );
+
+-- =====================================================
+-- 10. TRIGGER TO CREATE PROFILE ON SIGNUP
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, role)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    NEW.raw_user_meta_data->>'full_name',
+    'viewer'
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create trigger
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- =====================================================
+-- 11. INDEXES FOR PERFORMANCE
+-- =====================================================
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+CREATE INDEX IF NOT EXISTS idx_projects_member ON projects(member_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_start_date ON projects(start_date);
+CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_project_activities_project ON project_activities(project_id, created_at DESC);
