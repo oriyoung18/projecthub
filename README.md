@@ -170,6 +170,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ```bash
 npm run lint
+npm run typecheck
 npm run build
 ```
 
