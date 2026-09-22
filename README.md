@@ -126,6 +126,8 @@ Personalize your experience with theme options, profile customization, and accou
 
 ## Setup
 
+Requires Node.js 20.9 or newer. If you use `nvm`, run `nvm use` to select the version recorded in `.nvmrc`.
+
 1. Install the dependencies exactly as recorded in `package-lock.json`:
 
 ```bash
