@@ -171,8 +171,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### Production check
 
 ```bash
-npm run lint
-npm run typecheck
+npm run check
 npm run build
 ```
 
